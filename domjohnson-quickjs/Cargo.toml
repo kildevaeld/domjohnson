@@ -1,0 +1,9 @@
+[package]
+name = "domjohnson-quickjs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+domjohnson = { path = "../domjohnson" }
+rquickjs = { version = "*", features = ["classes", "macro"] }
+locket = { git = "https://github.com/kildevaeld/locket-rs" }

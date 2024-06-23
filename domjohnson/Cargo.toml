@@ -1,0 +1,14 @@
+[package]
+name = "domjohnson"
+version = "0.1.0"
+edition = "2021"
+
+# See fcxc keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+html5ever = { version = "0.27" }
+selectors = "0.22"
+cssparser = "0.27.2"
+generational-indextree = { version = "1" }
+smol_str = { version = "0.2" }
+locket = { git = "https://github.com/kildevaeld/locket-rs" }
