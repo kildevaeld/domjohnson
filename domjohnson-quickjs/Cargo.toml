@@ -3,6 +3,9 @@ name = "domjohnson-quickjs"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+send = []
+
 [dependencies]
 domjohnson = { path = "../domjohnson" }
 rquickjs = { version = "*", features = ["classes", "macro"] }
