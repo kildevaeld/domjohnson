@@ -1,4 +1,4 @@
-use rquickjs::class::Trace;
+use rquickjs::{class::Trace, qjs};
 
 use crate::{element::JsElement, lock::Locket};
 use locket::LockApi as _;
@@ -48,6 +48,15 @@ impl JsDocument {
         dom.select("body").get(0).map(|id| JsElement {
             id,
             dom: self.inner.clone(),
+        })
+    }
+
+    #[qjs(rename = "querySelector")]
+    pub fn query_selector(&self, query: String) -> Option<JsElement> {
+        let dom = self.inner.read().expect("dom");
+        dom.select(&query).get(0).map(|id| JsElement {
+            dom: self.inner.clone(),
+            id,
         })
     }
 }

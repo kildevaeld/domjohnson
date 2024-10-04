@@ -9,6 +9,7 @@ pub use self::{
     document::Document,
     element::NodeRef,
     matcher::{MatchScope, Matcher, Matches},
+    selection::Selection,
 };
 
 pub use generational_indextree::NodeId;

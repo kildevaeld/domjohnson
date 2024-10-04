@@ -23,6 +23,7 @@ impl JsElement {
         Ok(())
     }
 
+    #[qjs(get, rename = "appendChild")]
     pub fn append_child<'js>(&self, child: Class<'js, JsElement>) -> rquickjs::Result<()> {
         let mut dom = self.dom.write().unwrap();
         dom.append(self.id, child.try_borrow()?.id);

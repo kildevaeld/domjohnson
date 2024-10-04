@@ -60,3 +60,15 @@ impl<'a> IntoIterator for &'a Selection {
         self.nodes.iter()
     }
 }
+
+impl From<Selection> for Vec<NodeId> {
+    fn from(value: Selection) -> Self {
+        value.nodes
+    }
+}
+
+impl From<Vec<NodeId>> for Selection {
+    fn from(value: Vec<NodeId>) -> Self {
+        Selection { nodes: value }
+    }
+}

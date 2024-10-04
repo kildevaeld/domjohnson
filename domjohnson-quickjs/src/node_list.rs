@@ -1,4 +1,4 @@
-use domjohnson::NodeId;
+use domjohnson::{NodeId, Selection};
 use locket::LockApi;
 use rquickjs::{atom::PredefinedAtom, class::Trace, function::MutFn, Class, Ctx, Function, Object};
 
@@ -54,5 +54,25 @@ impl Children {
             ),
         )?;
         Ok(res)
+    }
+}
+
+pub struct NodeList {
+    select: Vec<NodeId>,
+    dom: Locket<domjohnson::Document>,
+}
+
+impl<'js> Trace<'js> for NodeList {
+    fn trace<'a>(&self, _tracer: rquickjs::class::Tracer<'a, 'js>) {}
+}
+
+impl NodeList {
+    pub fn item(&self, idx: usize) -> Option<JsElement> {
+        self.select.get(idx).and_then(|id| {
+            Some(JsElement {
+                id: *id,
+                dom: self.dom.clone(),
+            })
+        })
     }
 }
