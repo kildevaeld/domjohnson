@@ -304,11 +304,22 @@ impl Element {
         self.classes.insert(LocalName::from(class));
     }
 
+    pub fn remove_class(&mut self, class: &str) {
+        if self.has_class(class, CaseSensitivity::CaseSensitive) {
+            self.classes.remove(&LocalName::from(class));
+        }
+    }
+
     /// Returns an iterator over the element's classes.
     pub fn classes(&self) -> Classes {
         Classes {
             inner: self.classes.iter(),
         }
+    }
+
+    pub fn has_attr(&self, attr: &str, case_sensitive: CaseSensitivity) -> bool {
+        self.attrs()
+            .any(|(c, _)| case_sensitive.eq(c.as_bytes(), attr.as_bytes()))
     }
 
     /// Returns the value of an attribute.
@@ -322,6 +333,13 @@ impl Element {
             QualName::new(None, ns!(html), LocalName::from(attr)),
             value.into(),
         );
+    }
+
+    pub fn remove_attr(&mut self, attr: &str) {
+        if self.has_attr(attr, CaseSensitivity::CaseSensitive) {
+            self.attrs
+                .remove(&QualName::new(None, ns!(), LocalName::from(attr)));
+        }
     }
 
     /// Returns an iterator over the element's attributes.
@@ -345,6 +363,10 @@ impl<'a> Iterator for Classes<'a> {
     fn next(&mut self) -> Option<&'a str> {
         self.inner.next().map(Deref::deref)
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
 
 /// An iterator over a node's attributes.
@@ -367,6 +389,10 @@ impl<'a> Iterator for Attrs<'a> {
 
     fn next(&mut self) -> Option<(&'a str, &'a str)> {
         self.inner.next().map(|(k, v)| (k.local.deref(), v.deref()))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 
