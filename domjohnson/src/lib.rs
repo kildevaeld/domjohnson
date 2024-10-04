@@ -13,3 +13,5 @@ pub use self::{
 };
 
 pub use generational_indextree::NodeId;
+
+pub use selectors::attr::CaseSensitivity;
