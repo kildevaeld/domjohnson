@@ -82,9 +82,13 @@ impl Document {
     }
 
     pub fn select(&self, selector: &str) -> Selection {
+        self.select_from(self.root, selector)
+    }
+
+    pub fn select_from(&self, node: NodeId, selector: &str) -> Selection {
         let matcher = Matcher::new(selector).expect("invalid css selector");
         Selection::new(
-            Matches::from_one(&self.tree, self.root, matcher, MatchScope::ChildrenOnly).collect(),
+            Matches::from_one(&self.tree, node, matcher, MatchScope::ChildrenOnly).collect(),
         )
     }
 
