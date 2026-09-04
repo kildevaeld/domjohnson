@@ -224,7 +224,9 @@ impl TreeSink for DocumentBuilder {
 
     fn reparent_children(&self, node: &Self::Handle, new_parent: &Self::Handle) {
         let mut tree = self.tree.borrow_mut();
-        node.detach(&mut tree);
-        new_parent.append(*node, &mut tree);
+        let children = node.children(&tree).collect::<Vec<_>>();
+        for child in children {
+            new_parent.append(child, &mut tree);
+        }
     }
 }

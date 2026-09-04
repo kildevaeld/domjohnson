@@ -114,7 +114,7 @@ impl<'a> selectors::Element for NodeRef<'a> {
     }
 
     fn is_html_slot_element(&self) -> bool {
-        true
+        element!(self).name() == "slot"
     }
 
     fn has_id(&self, id: &SelectorString, case_sensitivity: CaseSensitivity) -> bool {
@@ -136,9 +136,13 @@ impl<'a> selectors::Element for NodeRef<'a> {
     }
 
     fn is_empty(&self) -> bool {
-        !self
-            .children()
-            .any(|child| child.node().is_element() || child.node().is_text())
+        !self.children().any(|child| {
+            child.node().is_element()
+                || child
+                    .node()
+                    .as_text()
+                    .is_some_and(|text| !text.text.is_empty())
+        })
     }
 
     fn is_root(&self) -> bool {

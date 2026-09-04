@@ -129,7 +129,8 @@ impl Document {
     }
 
     pub fn create_element(&mut self, name: &str) -> NodeId {
-        let name = QualName::new(None, ns!(html), LocalName::from(name));
+        let name = name.to_ascii_lowercase();
+        let name = QualName::new(None, ns!(html), LocalName::from(name.as_str()));
         let node = Node::Element(Element::new(name, Vec::new()));
         self.tree.new_node(node)
     }
@@ -157,9 +158,12 @@ impl Document {
     }
 
     pub fn remove_orphans(&mut self) {
-        let nodes = self.orhpans().collect::<Vec<_>>();
-        for node in nodes {
-            self.delete(node);
+        let roots = self.orhpans().collect::<Vec<_>>();
+        for root in roots {
+            let subtree = root.descendants(&self.tree).collect::<Vec<_>>();
+            for node in subtree.into_iter().rev() {
+                node.remove(&mut self.tree);
+            }
         }
     }
 }

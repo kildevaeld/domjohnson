@@ -1,6 +1,8 @@
 use domjohnson::{NodeId, Selection};
 use locket::LockApi;
-use rquickjs::{atom::PredefinedAtom, class::Trace, function::MutFn, Class, Ctx, Function, Object};
+use rquickjs::{
+    atom::PredefinedAtom, class::Trace, function::MutFn, Class, Ctx, Function, JsLifetime, Object,
+};
 
 use crate::{element::JsElement, lock::Locket};
 
@@ -8,6 +10,10 @@ use crate::{element::JsElement, lock::Locket};
 pub struct Children {
     pub dom: Locket<domjohnson::Document>,
     pub node: NodeId,
+}
+
+unsafe impl<'js> JsLifetime<'js> for Children {
+    type Changed<'to> = Children;
 }
 
 impl<'js> Trace<'js> for Children {

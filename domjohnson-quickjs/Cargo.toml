@@ -8,5 +8,5 @@ send = ["rquickjs/parallel"]
 
 [dependencies]
 domjohnson = { path = "../domjohnson" }
-rquickjs = { version = "*", features = ["classes", "macro"] }
+rquickjs = { version = "0.12", features = ["classes", "macro"] }
 locket = { git = "https://github.com/kildevaeld/locket-rs" }

@@ -44,15 +44,19 @@ impl<'a> NodeRef<'a> {
     }
 
     pub fn prev_siblings(&self) -> PrevSiblings<'a> {
+        let mut inner = self.id.preceding_siblings(&self.tree);
+        inner.next();
         PrevSiblings {
-            inner: self.id.preceding_siblings(&self.tree),
+            inner,
             arena: &self.tree,
         }
     }
 
     pub fn next_siblings(&self) -> NextSiblings<'a> {
+        let mut inner = self.id.following_siblings(&self.tree);
+        inner.next();
         NextSiblings {
-            inner: self.id.following_siblings(&self.tree),
+            inner,
             arena: &self.tree,
         }
     }
@@ -203,5 +207,84 @@ impl<'a> Iterator for NextSiblings<'a> {
     type Item = NodeRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|idx| NodeRef::new(&self.arena, idx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NodeRef;
+    use crate::node::{Comment, Element, Node, Text};
+    use generational_indextree::Arena;
+    use html5ever::{ns, LocalName, QualName};
+
+    #[test]
+    fn node_ref_navigates_and_serializes_a_tree() {
+        let mut tree = Arena::new();
+        let document = tree.new_node(Node::Document);
+        let mut element = Element::new(
+            QualName::new(None, ns!(html), LocalName::from("div")),
+            Vec::new(),
+        );
+        element.set_attr("id", "root");
+        let div = tree.new_node(Node::Element(element));
+        let text = tree.new_node(Node::Text(Text {
+            text: "text".into(),
+        }));
+        let comment = tree.new_node(Node::Comment(Comment {
+            comment: "note".into(),
+        }));
+        let span = tree.new_node(Node::Element(Element::new(
+            QualName::new(None, ns!(html), LocalName::from("span")),
+            Vec::new(),
+        )));
+
+        document.append(div, &mut tree);
+        div.append(text, &mut tree);
+        div.append(comment, &mut tree);
+        div.append(span, &mut tree);
+
+        let node = NodeRef::new(&tree, div);
+        assert_eq!(node.node_type(), "div");
+        assert_eq!(node.attr("id").map(String::as_str), Some("root"));
+        assert_eq!(node.parent().unwrap().node_type(), "");
+        assert_eq!(
+            node.children()
+                .map(|child| child.node_type())
+                .collect::<Vec<_>>(),
+            ["text", "comment", "span"]
+        );
+        assert_eq!(
+            node.reverse_children()
+                .map(|child| child.node_type())
+                .collect::<Vec<_>>(),
+            ["span", "comment", "text"]
+        );
+
+        let comment = NodeRef::new(&tree, comment);
+        assert_eq!(
+            comment
+                .prev_siblings()
+                .map(|sibling| sibling.node_type())
+                .collect::<Vec<_>>(),
+            ["text"]
+        );
+        assert_eq!(
+            comment
+                .next_siblings()
+                .map(|sibling| sibling.node_type())
+                .collect::<Vec<_>>(),
+            ["span"]
+        );
+
+        assert_eq!(
+            node.html(),
+            r#"<div id="root">text<!--note--><span></span></div>"#
+        );
+        assert_eq!(node.inner_html(), "text<!--note--><span></span>");
+        assert_eq!(
+            node.text().map(|text| text.as_str()).collect::<Vec<_>>(),
+            ["text"]
+        );
+        assert_eq!(node.traverse().count(), 8);
     }
 }

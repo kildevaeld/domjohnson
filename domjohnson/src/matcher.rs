@@ -134,7 +134,7 @@ impl<'a> Iterator for Matches<'a, NodeId> {
 
                 let node_ref = NodeRef::new(&self.arena, node);
 
-                if self.matcher.match_element(&node_ref) {
+                if node_ref.node().is_element() && self.matcher.match_element(&node_ref) {
                     if self.set.contains(&node) {
                         continue;
                     }

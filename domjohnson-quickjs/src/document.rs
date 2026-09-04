@@ -1,4 +1,4 @@
-use rquickjs::{class::Trace, qjs};
+use rquickjs::{class::Trace, JsLifetime};
 
 use crate::{element::JsElement, lock::Locket};
 use locket::LockApi as _;
@@ -6,6 +6,10 @@ use locket::LockApi as _;
 #[rquickjs::class(rename = "Document")]
 pub struct JsDocument {
     pub inner: Locket<domjohnson::Document>,
+}
+
+unsafe impl<'js> JsLifetime<'js> for JsDocument {
+    type Changed<'to> = JsDocument;
 }
 
 impl<'js> Trace<'js> for JsDocument {
@@ -58,5 +62,17 @@ impl JsDocument {
             dom: self.inner.clone(),
             id,
         })
+    }
+
+    #[qjs(rename = "querySelectorAll")]
+    pub fn query_selector_all(&self, query: String) -> Vec<JsElement> {
+        let dom = self.inner.read().expect("dom");
+        dom.select(&query)
+            .into_iter()
+            .map(|id| JsElement {
+                dom: self.inner.clone(),
+                id,
+            })
+            .collect()
     }
 }

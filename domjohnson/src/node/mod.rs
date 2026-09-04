@@ -302,12 +302,25 @@ impl Element {
 
     pub fn append_class(&mut self, class: &str) {
         self.classes.insert(LocalName::from(class));
+        self.sync_class_attr();
     }
 
     pub fn remove_class(&mut self, class: &str) {
-        if self.has_class(class, CaseSensitivity::CaseSensitive) {
-            self.classes.remove(&LocalName::from(class));
-        }
+        self.classes.remove(&LocalName::from(class));
+        self.sync_class_attr();
+    }
+
+    fn sync_class_attr(&mut self) {
+        let classes = self
+            .classes
+            .iter()
+            .map(LocalName::as_ref)
+            .collect::<Vec<_>>()
+            .join(" ");
+        self.attrs.insert(
+            QualName::new(None, ns!(), LocalName::from("class")),
+            classes,
+        );
     }
 
     /// Returns an iterator over the element's classes.
@@ -330,15 +343,33 @@ impl Element {
 
     pub fn set_attr(&mut self, attr: &str, value: &str) {
         self.attrs.insert(
-            QualName::new(None, ns!(html), LocalName::from(attr)),
+            QualName::new(None, ns!(), LocalName::from(attr)),
             value.into(),
         );
+
+        match attr {
+            "id" => self.id = Some(LocalName::from(value)),
+            "class" => {
+                self.classes = value.split_whitespace().map(LocalName::from).collect();
+            }
+            _ => {}
+        }
     }
 
     pub fn remove_attr(&mut self, attr: &str) {
-        if self.has_attr(attr, CaseSensitivity::CaseSensitive) {
-            self.attrs
-                .remove(&QualName::new(None, ns!(), LocalName::from(attr)));
+        let name = QualName::new(None, ns!(), LocalName::from(attr));
+
+        #[cfg(feature = "deterministic")]
+        let removed = self.attrs.shift_remove(&name);
+        #[cfg(not(feature = "deterministic"))]
+        let removed = self.attrs.remove(&name);
+
+        if removed.is_some() {
+            match attr {
+                "id" => self.id = None,
+                "class" => self.classes.clear(),
+                _ => {}
+            }
         }
     }
 

@@ -1,12 +1,16 @@
 use crate::lock::Locket;
 use domjohnson::NodeId;
 use locket::LockApi;
-use rquickjs::{class::Trace, Class, Ctx};
+use rquickjs::{class::Trace, Class, Ctx, JsLifetime};
 
 #[rquickjs::class(rename = "Element")]
 pub struct JsElement {
     pub dom: Locket<domjohnson::Document>,
     pub id: NodeId,
+}
+
+unsafe impl<'js> JsLifetime<'js> for JsElement {
+    type Changed<'to> = JsElement;
 }
 
 impl<'js> Trace<'js> for JsElement {
