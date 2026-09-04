@@ -6,10 +6,10 @@ use crate::node::{Comment, Doctype, Element, Node};
 use crate::selection::Selection;
 use crate::{MatchScope, Matcher, Matches, NodeRef};
 use generational_indextree::{Arena, NodeId};
-use html5ever::serialize::TraversalScope;
+
 use html5ever::tendril::TendrilSink;
 use html5ever::{interface::QuirksMode, parse_document, ParseOpts};
-use html5ever::{namespace_url, ns, LocalName, QualName};
+use html5ever::{ns, LocalName, QualName};
 use smol_str::SmolStr;
 
 mod sink;

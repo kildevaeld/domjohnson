@@ -9,11 +9,12 @@ edition = "2021"
 deterministic = ["indexmap"]
 
 [dependencies]
-html5ever = { version = "0.27" }
-selectors = "0.22"
-cssparser = "0.27.2"
+html5ever = { version = "0.39" }
+selectors = "0.40"
+cssparser = "0.37"
+precomputed-hash = "0.1"
 generational-indextree = { version = "1" }
-smol_str = { version = "0.2" }
+smol_str = { version = "0.3.6" }
 locket = { git = "https://github.com/kildevaeld/locket-rs" }
 
 indexmap = { version = "2", optional = true }

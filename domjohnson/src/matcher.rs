@@ -1,12 +1,17 @@
 use cssparser::ParseError;
 use generational_indextree::{Arena, NodeId};
-use html5ever::{LocalName, Namespace};
+use precomputed_hash::PrecomputedHash;
 use selectors::{
     matching,
     parser::{self, SelectorList, SelectorParseErrorKind},
-    visitor, Element,
+    Element,
 };
-use std::{collections::HashSet, fmt};
+use smol_str::SmolStr;
+use std::{
+    collections::HashSet,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use crate::{element::NodeRef, node::Node};
 
@@ -18,22 +23,29 @@ pub struct Matcher {
 
 impl Matcher {
     /// Greate a new CSS matcher.
-    pub fn new(sel: &str) -> Result<Self, ParseError<SelectorParseErrorKind>> {
+    pub fn new<'i>(sel: &'i str) -> Result<Self, ParseError<'i, SelectorParseErrorKind<'i>>> {
         let mut input = cssparser::ParserInput::new(sel);
         let mut parser = cssparser::Parser::new(&mut input);
-        selectors::parser::SelectorList::parse(&InnerSelectorParser, &mut parser)
-            .map(|selector_list| Matcher { selector_list })
+        selectors::parser::SelectorList::parse(
+            &InnerSelectorParser,
+            &mut parser,
+            parser::ParseRelative::No,
+        )
+        .map(|selector_list| Matcher { selector_list })
     }
 
     pub(crate) fn match_element<E>(&self, element: &E) -> bool
     where
         E: Element<Impl = InnerSelector>,
     {
+        let mut caches = matching::SelectorCaches::default();
         let mut ctx = matching::MatchingContext::new(
             matching::MatchingMode::Normal,
             None,
-            None,
+            &mut caches,
             matching::QuirksMode::NoQuirks,
+            matching::NeedsSelectorFlags::No,
+            matching::MatchingForInvalidation::No,
         );
 
         matching::matches_selector_list(&self.selector_list, element, &mut ctx)
@@ -146,19 +158,79 @@ impl<'i> parser::Parser<'i> for InnerSelectorParser {
 pub struct InnerSelector;
 
 impl parser::SelectorImpl for InnerSelector {
-    type ExtraMatchingData = String;
-    type AttrValue = String;
-    type Identifier = LocalName;
-    type ClassName = LocalName;
-    type PartName = LocalName;
-    type LocalName = LocalName;
-    type NamespaceUrl = Namespace;
-    type NamespacePrefix = LocalName;
-    type BorrowedLocalName = LocalName;
-    type BorrowedNamespaceUrl = Namespace;
+    type ExtraMatchingData<'a> = std::marker::PhantomData<&'a ()>;
+    type AttrValue = SelectorAttrValue;
+    type Identifier = SelectorString;
+    type LocalName = SelectorString;
+    type NamespaceUrl = SelectorString;
+    type NamespacePrefix = SelectorString;
+    type BorrowedLocalName = str;
+    type BorrowedNamespaceUrl = str;
 
     type NonTSPseudoClass = NonTSPseudoClass;
     type PseudoElement = PseudoElement;
+}
+
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct SelectorString(SmolStr);
+
+impl AsRef<str> for SelectorString {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for SelectorString {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for SelectorString {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
+impl cssparser::ToCss for SelectorString {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    where
+        W: fmt::Write,
+    {
+        cssparser::serialize_identifier(&self.0, dest)
+    }
+}
+
+impl PrecomputedHash for SelectorString {
+    fn precomputed_hash(&self) -> u32 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish() as u32
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SelectorAttrValue(SmolStr);
+
+impl AsRef<str> for SelectorAttrValue {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for SelectorAttrValue {
+    fn from(value: &str) -> Self {
+        Self(value.into())
+    }
+}
+
+impl cssparser::ToCss for SelectorAttrValue {
+    fn to_css<W>(&self, dest: &mut W) -> fmt::Result
+    where
+        W: fmt::Write,
+    {
+        cssparser::serialize_string(&self.0, dest)
+    }
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -173,21 +245,6 @@ impl parser::NonTSPseudoClass for NonTSPseudoClass {
 
     fn is_user_action_state(&self) -> bool {
         false
-    }
-
-    fn has_zero_specificity(&self) -> bool {
-        false
-    }
-}
-
-impl parser::Visit for NonTSPseudoClass {
-    type Impl = InnerSelector;
-
-    fn visit<V>(&self, _visitor: &mut V) -> bool
-    where
-        V: visitor::SelectorVisitor<Impl = Self::Impl>,
-    {
-        true
     }
 }
 

@@ -1,6 +1,4 @@
-use std::ops::Deref;
-
-use crate::node::{Element, Node};
+use crate::node::Node;
 
 use generational_indextree::{Arena, NodeEdge, NodeId};
 use html5ever::serialize::{serialize, SerializeOpts, TraversalScope};

@@ -1,5 +1,5 @@
 //! HTML nodes.
-use html5ever::{namespace_url, ns, Attribute, LocalName, QualName};
+use html5ever::{ns, Attribute, LocalName, QualName};
 use selectors::attr::CaseSensitivity;
 use smol_str::SmolStr;
 use std::{

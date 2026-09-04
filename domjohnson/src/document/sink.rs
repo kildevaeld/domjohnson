@@ -1,8 +1,10 @@
+use std::cell::{Cell, Ref, RefCell};
+
 use generational_indextree::{Arena, NodeId};
 use html5ever::{
     expanded_name,
-    interface::{NodeOrText, QuirksMode, TreeSink},
-    local_name, namespace_url, ns,
+    interface::{ElemName, NodeOrText, QuirksMode, TreeSink},
+    local_name, ns,
 };
 
 use crate::node::{Comment, Doctype, Element, Node, ProcessingInstruction, Text};
@@ -10,23 +12,35 @@ use crate::node::{Comment, Doctype, Element, Node, ProcessingInstruction, Text};
 use super::Document;
 
 pub struct DocumentBuilder {
-    errors: Vec<std::borrow::Cow<'static, str>>,
-    tree: Arena<Node>,
-    quirks_mode: QuirksMode,
+    errors: RefCell<Vec<std::borrow::Cow<'static, str>>>,
+    tree: RefCell<Arena<Node>>,
+    quirks_mode: Cell<QuirksMode>,
     root: NodeId,
+}
+
+#[derive(Debug)]
+pub struct NodeName<'a>(Ref<'a, Node>);
+
+impl ElemName for NodeName<'_> {
+    fn ns(&self) -> &html5ever::Namespace {
+        &self.0.as_element().unwrap().name.ns
+    }
+
+    fn local_name(&self) -> &html5ever::LocalName {
+        &self.0.as_element().unwrap().name.local
+    }
 }
 
 impl DocumentBuilder {
     pub fn new() -> DocumentBuilder {
         let mut tree = Arena::default();
-
         let root = tree.new_node(Node::Document);
 
         DocumentBuilder {
-            errors: Vec::default(),
-            tree,
+            errors: RefCell::default(),
+            tree: RefCell::new(tree),
             root,
-            quirks_mode: QuirksMode::NoQuirks,
+            quirks_mode: Cell::new(QuirksMode::NoQuirks),
         }
     }
 }
@@ -34,102 +48,88 @@ impl DocumentBuilder {
 impl TreeSink for DocumentBuilder {
     type Handle = NodeId;
     type Output = Document;
+    type ElemName<'a> = NodeName<'a>;
 
     fn finish(self) -> Self::Output {
-        Document::new(self.tree, self.root, self.quirks_mode)
+        Document::new(self.tree.into_inner(), self.root, self.quirks_mode.get())
     }
 
-    fn parse_error(&mut self, msg: std::borrow::Cow<'static, str>) {
-        self.errors.push(msg)
+    fn parse_error(&self, msg: std::borrow::Cow<'static, str>) {
+        self.errors.borrow_mut().push(msg)
     }
 
-    fn get_document(&mut self) -> Self::Handle {
+    fn get_document(&self) -> Self::Handle {
         self.root
     }
 
-    fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> html5ever::ExpandedName<'a> {
-        self.tree[*target]
-            .get()
-            .as_element()
-            .unwrap()
-            .name
-            .expanded()
+    fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> Self::ElemName<'a> {
+        NodeName(Ref::map(self.tree.borrow(), |tree| tree[*target].get()))
     }
 
     fn create_element(
-        &mut self,
+        &self,
         name: html5ever::QualName,
         attrs: Vec<html5ever::Attribute>,
-        flags: html5ever::interface::ElementFlags,
+        _flags: html5ever::interface::ElementFlags,
     ) -> Self::Handle {
-        let node = self
-            .tree
-            .new_node(Node::Element(Element::new(name.clone(), attrs)));
+        let mut tree = self.tree.borrow_mut();
+        let node = tree.new_node(Node::Element(Element::new(name.clone(), attrs)));
         if name.expanded() == expanded_name!(html "template") {
-            let child = self.tree.new_node(Node::Fragment);
-            node.append(child, &mut self.tree);
+            let child = tree.new_node(Node::Fragment);
+            node.append(child, &mut tree);
         }
-
         node
     }
 
-    fn create_comment(&mut self, text: html5ever::tendril::StrTendril) -> Self::Handle {
-        self.tree.new_node(Node::Comment(Comment {
+    fn create_comment(&self, text: html5ever::tendril::StrTendril) -> Self::Handle {
+        self.tree.borrow_mut().new_node(Node::Comment(Comment {
             comment: text.to_string().into(),
         }))
     }
 
     fn create_pi(
-        &mut self,
+        &self,
         target: html5ever::tendril::StrTendril,
         data: html5ever::tendril::StrTendril,
     ) -> Self::Handle {
         self.tree
+            .borrow_mut()
             .new_node(Node::ProcessingInstruction(ProcessingInstruction {
                 target: target.into(),
                 data: data.into(),
             }))
     }
 
-    fn append(
-        &mut self,
-        parent: &Self::Handle,
-        child: html5ever::interface::NodeOrText<Self::Handle>,
-    ) {
+    fn append(&self, parent: &Self::Handle, child: NodeOrText<Self::Handle>) {
+        let mut tree = self.tree.borrow_mut();
         match child {
-            NodeOrText::AppendNode(id) => {
-                parent.append(id, &mut self.tree);
-            }
-
+            NodeOrText::AppendNode(id) => parent.append(id, &mut tree),
             NodeOrText::AppendText(text) => {
-                let can_concat = parent
-                    .reverse_children(&self.tree)
-                    .next()
-                    .map_or(false, |n| self.tree[n].get().is_text());
-
-                if can_concat {
-                    let last_child = parent.reverse_children(&self.tree).next().unwrap();
-                    match self.tree[last_child].get_mut() {
-                        Node::Text(ref mut t) => t.concat(&text),
-                        _ => unreachable!(),
-                    }
+                let last_child = parent.reverse_children(&tree).next();
+                if let Some(last_child) = last_child.filter(|id| tree[*id].get().is_text()) {
+                    tree[last_child]
+                        .get_mut()
+                        .as_text_mut()
+                        .unwrap()
+                        .concat(&text);
                 } else {
-                    let child = self.tree.new_node(Node::Text(Text {
+                    let child = tree.new_node(Node::Text(Text {
                         text: (&*text).into(),
                     }));
-                    parent.append(child, &mut self.tree);
+                    parent.append(child, &mut tree);
                 }
             }
         }
     }
 
     fn append_based_on_parent_node(
-        &mut self,
+        &self,
         element: &Self::Handle,
         prev_element: &Self::Handle,
-        child: html5ever::interface::NodeOrText<Self::Handle>,
+        child: NodeOrText<Self::Handle>,
     ) {
-        if self.tree.get(*element).unwrap().parent().is_some() {
+        let has_parent = self.tree.borrow().get(*element).unwrap().parent().is_some();
+        if has_parent {
             self.append_before_sibling(element, child)
         } else {
             self.append(prev_element, child)
@@ -137,7 +137,7 @@ impl TreeSink for DocumentBuilder {
     }
 
     fn append_doctype_to_document(
-        &mut self,
+        &self,
         name: html5ever::tendril::StrTendril,
         public_id: html5ever::tendril::StrTendril,
         system_id: html5ever::tendril::StrTendril,
@@ -147,67 +147,68 @@ impl TreeSink for DocumentBuilder {
             public_id: (&*public_id).into(),
             system_id: (&*system_id).into(),
         };
-
-        let node = self.tree.new_node(Node::Doctype(doctype));
-        self.root.append(node, &mut self.tree);
+        let mut tree = self.tree.borrow_mut();
+        let node = tree.new_node(Node::Doctype(doctype));
+        self.root.append(node, &mut tree);
     }
 
-    fn get_template_contents(&mut self, target: &Self::Handle) -> Self::Handle {
-        self.tree.get(*target).unwrap().first_child().unwrap()
+    fn get_template_contents(&self, target: &Self::Handle) -> Self::Handle {
+        self.tree
+            .borrow()
+            .get(*target)
+            .unwrap()
+            .first_child()
+            .unwrap()
     }
 
     fn same_node(&self, x: &Self::Handle, y: &Self::Handle) -> bool {
         x == y
     }
 
-    fn set_quirks_mode(&mut self, mode: QuirksMode) {
-        self.quirks_mode = mode;
+    fn set_quirks_mode(&self, mode: QuirksMode) {
+        self.quirks_mode.set(mode);
     }
 
-    fn append_before_sibling(
-        &mut self,
-        sibling: &Self::Handle,
-        new_node: html5ever::interface::NodeOrText<Self::Handle>,
-    ) {
+    fn append_before_sibling(&self, sibling: &Self::Handle, new_node: NodeOrText<Self::Handle>) {
+        let mut tree = self.tree.borrow_mut();
         if let NodeOrText::AppendNode(id) = new_node {
-            id.detach(&mut self.tree);
+            id.detach(&mut tree);
         }
 
-        let sibling_node = self.tree.get(*sibling).unwrap();
-        if sibling_node.parent().is_some() {
-            match new_node {
-                NodeOrText::AppendNode(id) => {
-                    sibling.insert_before(id, &mut self.tree);
-                }
+        if tree.get(*sibling).unwrap().parent().is_none() {
+            return;
+        }
 
-                NodeOrText::AppendText(text) => {
-                    let can_concat = sibling_node
-                        .previous_sibling()
-                        .map_or(false, |n| self.tree[n].get().is_text());
-
-                    if can_concat {
-                        let prev_sibling = sibling_node.previous_sibling().unwrap();
-                        match self.tree[prev_sibling].get_mut() {
-                            Node::Text(t) => t.concat(&text),
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        let child = self.tree.new_node(Node::Text(Text {
-                            text: (&*text).into(),
-                        }));
-                        sibling.insert_before(child, &mut self.tree);
-                    }
+        match new_node {
+            NodeOrText::AppendNode(id) => sibling.insert_before(id, &mut tree),
+            NodeOrText::AppendText(text) => {
+                let previous_sibling = tree.get(*sibling).unwrap().previous_sibling();
+                if let Some(previous_sibling) =
+                    previous_sibling.filter(|id| tree[*id].get().is_text())
+                {
+                    tree[previous_sibling]
+                        .get_mut()
+                        .as_text_mut()
+                        .unwrap()
+                        .concat(&text);
+                } else {
+                    let child = tree.new_node(Node::Text(Text {
+                        text: (&*text).into(),
+                    }));
+                    sibling.insert_before(child, &mut tree);
                 }
             }
         }
     }
 
-    fn add_attrs_if_missing(&mut self, target: &Self::Handle, attrs: Vec<html5ever::Attribute>) {
-        let node = self.tree.get_mut(*target).unwrap();
-        let element = match *node.get_mut() {
-            Node::Element(ref mut e) => e,
-            _ => unreachable!(),
-        };
+    fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<html5ever::Attribute>) {
+        let mut tree = self.tree.borrow_mut();
+        let element = tree
+            .get_mut(*target)
+            .unwrap()
+            .get_mut()
+            .as_element_mut()
+            .unwrap();
 
         for attr in attrs {
             element
@@ -217,12 +218,13 @@ impl TreeSink for DocumentBuilder {
         }
     }
 
-    fn remove_from_parent(&mut self, target: &Self::Handle) {
-        target.detach(&mut self.tree);
+    fn remove_from_parent(&self, target: &Self::Handle) {
+        target.detach(&mut self.tree.borrow_mut());
     }
 
-    fn reparent_children(&mut self, node: &Self::Handle, new_parent: &Self::Handle) {
-        node.detach(&mut self.tree);
-        new_parent.append(*node, &mut self.tree);
+    fn reparent_children(&self, node: &Self::Handle, new_parent: &Self::Handle) {
+        let mut tree = self.tree.borrow_mut();
+        node.detach(&mut tree);
+        new_parent.append(*node, &mut tree);
     }
 }

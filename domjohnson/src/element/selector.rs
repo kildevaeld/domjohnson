@@ -1,8 +1,10 @@
 use super::NodeRef;
 
-use crate::matcher::{InnerSelector, NonTSPseudoClass, PseudoElement};
+use crate::matcher::{
+    InnerSelector, NonTSPseudoClass, PseudoElement, SelectorAttrValue, SelectorString,
+};
 
-use html5ever::{namespace_url, ns, LocalName, Namespace};
+use html5ever::ns;
 use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::matching;
 use selectors::OpaqueElement;
@@ -39,7 +41,7 @@ impl<'a> selectors::Element for NodeRef<'a> {
         false
     }
 
-    fn is_part(&self, _name: &LocalName) -> bool {
+    fn is_part(&self, _name: &SelectorString) -> bool {
         false
     }
 
@@ -47,11 +49,7 @@ impl<'a> selectors::Element for NodeRef<'a> {
         element!(self).name == element!(other).name
     }
 
-    fn exported_part(&self, _: &LocalName) -> Option<LocalName> {
-        None
-    }
-
-    fn imported_part(&self, _: &LocalName) -> Option<LocalName> {
+    fn imported_part(&self, _: &SelectorString) -> Option<SelectorString> {
         None
     }
 
@@ -63,37 +61,40 @@ impl<'a> selectors::Element for NodeRef<'a> {
         self.next_siblings().find(|sibling| sibling.is_element())
     }
 
+    fn first_element_child(&self) -> Option<Self> {
+        self.children().find(|child| child.is_element())
+    }
+
     fn is_html_element_in_html_document(&self) -> bool {
         // FIXME: Is there more to this?
         element!(self).name.ns == ns!(html)
     }
 
-    fn has_local_name(&self, name: &LocalName) -> bool {
-        &element!(self).name.local == name
+    fn has_local_name(&self, name: &str) -> bool {
+        element!(self).name.local.as_ref() == name
     }
 
-    fn has_namespace(&self, namespace: &Namespace) -> bool {
-        &element!(self).name.ns == namespace
+    fn has_namespace(&self, namespace: &str) -> bool {
+        element!(self).name.ns.as_ref() == namespace
     }
 
     fn attr_matches(
         &self,
-        ns: &NamespaceConstraint<&Namespace>,
-        local_name: &LocalName,
-        operation: &AttrSelectorOperation<&String>,
+        ns: &NamespaceConstraint<&SelectorString>,
+        local_name: &SelectorString,
+        operation: &AttrSelectorOperation<&SelectorAttrValue>,
     ) -> bool {
         element!(self).attrs.iter().any(|(key, value)| {
-            !matches!(*ns, NamespaceConstraint::Specific(url) if *url != key.ns)
-                && *local_name == key.local
+            !matches!(*ns, NamespaceConstraint::Specific(url) if url.as_ref() != key.ns.as_ref())
+                && local_name.as_ref() == key.local.as_ref()
                 && operation.eval_str(value)
         })
     }
 
-    fn match_non_ts_pseudo_class<F>(
+    fn match_non_ts_pseudo_class(
         &self,
         _pc: &NonTSPseudoClass,
         _context: &mut matching::MatchingContext<Self::Impl>,
-        _flags_setter: &mut F,
     ) -> bool {
         false
     }
@@ -106,6 +107,8 @@ impl<'a> selectors::Element for NodeRef<'a> {
         false
     }
 
+    fn apply_selector_flags(&self, _flags: matching::ElementSelectorFlags) {}
+
     fn is_link(&self) -> bool {
         element!(self).name() == "link"
     }
@@ -114,15 +117,22 @@ impl<'a> selectors::Element for NodeRef<'a> {
         true
     }
 
-    fn has_id(&self, id: &LocalName, case_sensitivity: CaseSensitivity) -> bool {
+    fn has_id(&self, id: &SelectorString, case_sensitivity: CaseSensitivity) -> bool {
         match element!(self).id {
-            Some(ref val) => case_sensitivity.eq(id.as_bytes(), val.as_bytes()),
+            Some(ref val) => case_sensitivity.eq(id.as_ref().as_bytes(), val.as_bytes()),
             None => false,
         }
     }
 
-    fn has_class(&self, name: &LocalName, case_sensitivity: CaseSensitivity) -> bool {
-        element!(self).has_class(name, case_sensitivity)
+    fn has_class(&self, name: &SelectorString, case_sensitivity: CaseSensitivity) -> bool {
+        element!(self)
+            .classes
+            .iter()
+            .any(|class| case_sensitivity.eq(name.as_ref().as_bytes(), class.as_bytes()))
+    }
+
+    fn has_custom_state(&self, _name: &SelectorString) -> bool {
+        false
     }
 
     fn is_empty(&self) -> bool {
@@ -134,5 +144,9 @@ impl<'a> selectors::Element for NodeRef<'a> {
     fn is_root(&self) -> bool {
         self.parent()
             .map_or(false, |parent| parent.node().is_document())
+    }
+
+    fn add_element_unique_hashes(&self, _filter: &mut selectors::bloom::BloomFilter) -> bool {
+        false
     }
 }
