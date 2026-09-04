@@ -1,24 +1,24 @@
-use generational_indextree::{Arena, NodeId};
+use trae::{NodeId, Tree};
 
 use crate::{node::Node, NodeRef};
 
 use super::node_ref::Text;
 
 pub struct NodeMut<'a> {
-    tree: &'a mut Arena<Node>,
+    tree: &'a mut Tree<Node>,
     id: NodeId,
 }
 
 impl<'a> core::ops::Deref for NodeMut<'a> {
     type Target = Node;
     fn deref(&self) -> &Self::Target {
-        self.tree[self.id].get()
+        &self.tree[self.id]
     }
 }
 
 impl<'a> core::ops::DerefMut for NodeMut<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.tree[self.id].get_mut()
+        &mut self.tree[self.id]
     }
 }
 
@@ -45,6 +45,6 @@ impl<'a> NodeMut<'a> {
     }
 
     pub fn remove(&mut self) {
-        self.id.remove_subtree(self.tree)
+        self.tree.detach(self.id, false)
     }
 }

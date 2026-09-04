@@ -5,7 +5,7 @@ use crate::element::node_ref::Text;
 use crate::node::{Comment, Doctype, Element, Node};
 use crate::selection::Selection;
 use crate::{MatchScope, Matcher, Matches, NodeRef};
-use generational_indextree::{Arena, NodeId};
+use trae::{NodeId, Tree};
 
 use html5ever::tendril::TendrilSink;
 use html5ever::{interface::QuirksMode, parse_document, ParseOpts};
@@ -16,7 +16,7 @@ mod sink;
 
 pub struct Document {
     quirks: QuirksMode,
-    tree: Arena<Node>,
+    tree: Tree<Node>,
     root: NodeId,
 }
 
@@ -27,42 +27,42 @@ impl Document {
     }
 
     pub fn new_html5() -> Document {
-        let mut tree = Arena::new();
+        let mut tree = Tree::new();
 
-        let root = tree.new_node(Node::Document);
-        let doctype = tree.new_node(Node::Doctype(Doctype {
+        let root = tree.alloc(Node::Document);
+        let doctype = tree.alloc(Node::Doctype(Doctype {
             name: "html".into(),
             public_id: "".into(),
             system_id: "".into(),
         }));
 
-        root.append(doctype, &mut tree);
+        tree.append(root, doctype);
 
-        let head_tag = tree.new_node(Node::Element(Element {
+        let head_tag = tree.alloc(Node::Element(Element {
             name: QualName::new(None, ns!(html), LocalName::from("head")),
             id: None,
             classes: Default::default(),
             attrs: Default::default(),
         }));
 
-        let body_tag = tree.new_node(Node::Element(Element {
+        let body_tag = tree.alloc(Node::Element(Element {
             name: QualName::new(None, ns!(html), LocalName::from("body")),
             id: None,
             classes: Default::default(),
             attrs: Default::default(),
         }));
 
-        let html_tag = tree.new_node(Node::Element(Element {
+        let html_tag = tree.alloc(Node::Element(Element {
             name: QualName::new(None, ns!(html), LocalName::from("html")),
             id: None,
             classes: Default::default(),
             attrs: Default::default(),
         }));
 
-        html_tag.append(head_tag, &mut tree);
-        html_tag.append(body_tag, &mut tree);
+        tree.append(html_tag, head_tag);
+        tree.append(html_tag, body_tag);
 
-        root.append(html_tag, &mut tree);
+        tree.append(root, html_tag);
 
         Document {
             quirks: QuirksMode::NoQuirks,
@@ -73,11 +73,11 @@ impl Document {
 }
 
 impl Document {
-    pub(crate) fn new(tree: Arena<Node>, root: NodeId, quirks: QuirksMode) -> Document {
+    pub(crate) fn new(tree: Tree<Node>, root: NodeId, quirks: QuirksMode) -> Document {
         Document { quirks, tree, root }
     }
 
-    pub(crate) fn tree(&self) -> &Arena<Node> {
+    pub(crate) fn tree(&self) -> &Tree<Node> {
         &self.tree
     }
 
@@ -93,31 +93,34 @@ impl Document {
     }
 
     pub fn get(&self, node: NodeId) -> Option<&Node> {
-        self.tree.get(node).map(|m| m.get())
+        self.tree.get(node)
     }
 
     pub fn get_mut(&mut self, node: NodeId) -> Option<&mut Node> {
-        self.tree.get_mut(node).map(|m| m.get_mut())
+        self.tree.get_mut(node)
     }
 
     pub fn remove(&mut self, node: NodeId) {
-        node.remove_subtree(&mut self.tree)
+        self.tree.detach(node, false)
     }
 
     pub fn delete(&mut self, node: NodeId) {
-        node.remove(&mut self.tree)
+        if let Some(parent) = self.tree.parent(node) {
+            self.tree.detach(node, parent);
+        }
+        self.tree.remove(node, false);
     }
 
     pub fn append(&mut self, parent: NodeId, child: NodeId) {
-        parent.append(child, &mut self.tree)
+        self.tree.append(parent, child)
     }
 
-    pub fn traverse(&self, node: NodeId) -> generational_indextree::Traverse<'_, Node> {
-        node.traverse(&self.tree)
+    pub fn traverse(&self, node: NodeId) -> trae::Traverse<'_, Node> {
+        self.tree.traverse(node)
     }
 
-    pub fn children(&self, node: NodeId) -> generational_indextree::Children<'_, Node> {
-        node.children(&self.tree)
+    pub fn children(&self, node: NodeId) -> trae::Children<'_, Node> {
+        self.tree.children(node)
     }
 
     pub fn inner_html(&self, node: NodeId) -> String {
@@ -132,37 +135,31 @@ impl Document {
         let name = name.to_ascii_lowercase();
         let name = QualName::new(None, ns!(html), LocalName::from(name.as_str()));
         let node = Node::Element(Element::new(name, Vec::new()));
-        self.tree.new_node(node)
+        self.tree.alloc(node)
     }
 
     pub fn create_text(&mut self, text: impl Into<SmolStr>) -> NodeId {
         let node = Node::Text(crate::node::Text { text: text.into() });
-        self.tree.new_node(node)
+        self.tree.alloc(node)
     }
 
     pub fn create_comment(&mut self, comment: impl Into<SmolStr>) -> NodeId {
         let node = Node::Comment(Comment {
             comment: comment.into(),
         });
-        self.tree.new_node(node)
+        self.tree.alloc(node)
     }
 
     pub fn orhpans(&self) -> impl Iterator<Item = NodeId> + '_ {
-        self.tree.iter_pairs().filter_map(|(id, node)| {
-            if id == self.root || node.parent().is_some() {
-                None
-            } else {
-                Some(id)
-            }
-        })
+        self.tree.orphans().filter(move |&id| id != self.root)
     }
 
     pub fn remove_orphans(&mut self) {
         let roots = self.orhpans().collect::<Vec<_>>();
         for root in roots {
-            let subtree = root.descendants(&self.tree).collect::<Vec<_>>();
+            let subtree = self.tree.decendents(root).collect::<Vec<_>>();
             for node in subtree.into_iter().rev() {
-                node.remove(&mut self.tree);
+                self.tree.remove(node, false);
             }
         }
     }

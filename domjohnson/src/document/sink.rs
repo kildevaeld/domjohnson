@@ -1,6 +1,7 @@
 use std::cell::{Cell, Ref, RefCell};
 
-use generational_indextree::{Arena, NodeId};
+use trae::{NodeId, Tree};
+
 use html5ever::{
     expanded_name,
     interface::{ElemName, NodeOrText, QuirksMode, TreeSink},
@@ -13,7 +14,7 @@ use super::Document;
 
 pub struct DocumentBuilder {
     errors: RefCell<Vec<std::borrow::Cow<'static, str>>>,
-    tree: RefCell<Arena<Node>>,
+    tree: RefCell<Tree<Node>>,
     quirks_mode: Cell<QuirksMode>,
     root: NodeId,
 }
@@ -33,8 +34,8 @@ impl ElemName for NodeName<'_> {
 
 impl DocumentBuilder {
     pub fn new() -> DocumentBuilder {
-        let mut tree = Arena::default();
-        let root = tree.new_node(Node::Document);
+        let mut tree = Tree::default();
+        let root = tree.alloc(Node::Document);
 
         DocumentBuilder {
             errors: RefCell::default(),
@@ -63,7 +64,7 @@ impl TreeSink for DocumentBuilder {
     }
 
     fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> Self::ElemName<'a> {
-        NodeName(Ref::map(self.tree.borrow(), |tree| tree[*target].get()))
+        NodeName(Ref::map(self.tree.borrow(), |tree| &tree[*target]))
     }
 
     fn create_element(
@@ -73,16 +74,16 @@ impl TreeSink for DocumentBuilder {
         _flags: html5ever::interface::ElementFlags,
     ) -> Self::Handle {
         let mut tree = self.tree.borrow_mut();
-        let node = tree.new_node(Node::Element(Element::new(name.clone(), attrs)));
+        let node = tree.alloc(Node::Element(Element::new(name.clone(), attrs)));
         if name.expanded() == expanded_name!(html "template") {
-            let child = tree.new_node(Node::Fragment);
-            node.append(child, &mut tree);
+            let child = tree.alloc(Node::Fragment);
+            tree.append(node, child);
         }
         node
     }
 
     fn create_comment(&self, text: html5ever::tendril::StrTendril) -> Self::Handle {
-        self.tree.borrow_mut().new_node(Node::Comment(Comment {
+        self.tree.borrow_mut().alloc(Node::Comment(Comment {
             comment: text.to_string().into(),
         }))
     }
@@ -94,7 +95,7 @@ impl TreeSink for DocumentBuilder {
     ) -> Self::Handle {
         self.tree
             .borrow_mut()
-            .new_node(Node::ProcessingInstruction(ProcessingInstruction {
+            .alloc(Node::ProcessingInstruction(ProcessingInstruction {
                 target: target.into(),
                 data: data.into(),
             }))
@@ -103,20 +104,16 @@ impl TreeSink for DocumentBuilder {
     fn append(&self, parent: &Self::Handle, child: NodeOrText<Self::Handle>) {
         let mut tree = self.tree.borrow_mut();
         match child {
-            NodeOrText::AppendNode(id) => parent.append(id, &mut tree),
+            NodeOrText::AppendNode(id) => tree.append(*parent, id),
             NodeOrText::AppendText(text) => {
-                let last_child = parent.reverse_children(&tree).next();
-                if let Some(last_child) = last_child.filter(|id| tree[*id].get().is_text()) {
-                    tree[last_child]
-                        .get_mut()
-                        .as_text_mut()
-                        .unwrap()
-                        .concat(&text);
+                let last_child = tree.reverse_children(*parent).next();
+                if let Some(last_child) = last_child.filter(|id| tree[*id].is_text()) {
+                    tree[last_child].as_text_mut().unwrap().concat(&text);
                 } else {
-                    let child = tree.new_node(Node::Text(Text {
+                    let child = tree.alloc(Node::Text(Text {
                         text: (&*text).into(),
                     }));
-                    parent.append(child, &mut tree);
+                    tree.append(*parent, child);
                 }
             }
         }
@@ -128,7 +125,7 @@ impl TreeSink for DocumentBuilder {
         prev_element: &Self::Handle,
         child: NodeOrText<Self::Handle>,
     ) {
-        let has_parent = self.tree.borrow().get(*element).unwrap().parent().is_some();
+        let has_parent = self.tree.borrow().parent(*element).is_some();
         if has_parent {
             self.append_before_sibling(element, child)
         } else {
@@ -148,17 +145,12 @@ impl TreeSink for DocumentBuilder {
             system_id: (&*system_id).into(),
         };
         let mut tree = self.tree.borrow_mut();
-        let node = tree.new_node(Node::Doctype(doctype));
-        self.root.append(node, &mut tree);
+        let node = tree.alloc(Node::Doctype(doctype));
+        tree.append(self.root, node);
     }
 
     fn get_template_contents(&self, target: &Self::Handle) -> Self::Handle {
-        self.tree
-            .borrow()
-            .get(*target)
-            .unwrap()
-            .first_child()
-            .unwrap()
+        self.tree.borrow().children(*target).next().unwrap()
     }
 
     fn same_node(&self, x: &Self::Handle, y: &Self::Handle) -> bool {
@@ -172,30 +164,28 @@ impl TreeSink for DocumentBuilder {
     fn append_before_sibling(&self, sibling: &Self::Handle, new_node: NodeOrText<Self::Handle>) {
         let mut tree = self.tree.borrow_mut();
         if let NodeOrText::AppendNode(id) = new_node {
-            id.detach(&mut tree);
+            tree.detach(id, false);
         }
 
-        if tree.get(*sibling).unwrap().parent().is_none() {
+        let Some(parent) = tree.parent(*sibling) else {
             return;
-        }
+        };
 
         match new_node {
-            NodeOrText::AppendNode(id) => sibling.insert_before(id, &mut tree),
+            NodeOrText::AppendNode(id) => tree.insert_before(parent, *sibling, id),
             NodeOrText::AppendText(text) => {
-                let previous_sibling = tree.get(*sibling).unwrap().previous_sibling();
+                let mut proceeding = tree.proceeding_siblings(*sibling);
+                proceeding.next();
+                let previous_sibling = proceeding.next();
                 if let Some(previous_sibling) =
-                    previous_sibling.filter(|id| tree[*id].get().is_text())
+                    previous_sibling.filter(|id| tree[*id].is_text())
                 {
-                    tree[previous_sibling]
-                        .get_mut()
-                        .as_text_mut()
-                        .unwrap()
-                        .concat(&text);
+                    tree[previous_sibling].as_text_mut().unwrap().concat(&text);
                 } else {
-                    let child = tree.new_node(Node::Text(Text {
+                    let child = tree.alloc(Node::Text(Text {
                         text: (&*text).into(),
                     }));
-                    sibling.insert_before(child, &mut tree);
+                    tree.insert_before(parent, *sibling, child);
                 }
             }
         }
@@ -203,12 +193,7 @@ impl TreeSink for DocumentBuilder {
 
     fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<html5ever::Attribute>) {
         let mut tree = self.tree.borrow_mut();
-        let element = tree
-            .get_mut(*target)
-            .unwrap()
-            .get_mut()
-            .as_element_mut()
-            .unwrap();
+        let element = tree.get_mut(*target).unwrap().as_element_mut().unwrap();
 
         for attr in attrs {
             element
@@ -219,14 +204,14 @@ impl TreeSink for DocumentBuilder {
     }
 
     fn remove_from_parent(&self, target: &Self::Handle) {
-        target.detach(&mut self.tree.borrow_mut());
+        self.tree.borrow_mut().detach(*target, false);
     }
 
     fn reparent_children(&self, node: &Self::Handle, new_parent: &Self::Handle) {
         let mut tree = self.tree.borrow_mut();
-        let children = node.children(&tree).collect::<Vec<_>>();
+        let children = tree.children(*node).collect::<Vec<_>>();
         for child in children {
-            new_parent.append(child, &mut tree);
+            tree.append(*new_parent, child);
         }
     }
 }

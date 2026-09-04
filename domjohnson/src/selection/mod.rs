@@ -2,7 +2,7 @@ use crate::{
     matcher::{MatchScope, Matcher, Matches},
     Document,
 };
-use generational_indextree::NodeId;
+use trae::NodeId;
 
 #[derive(Debug, Clone)]
 pub struct Selection {

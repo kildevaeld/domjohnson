@@ -1,12 +1,12 @@
 use crate::node::Node;
 
-use generational_indextree::{Arena, NodeEdge, NodeId};
 use html5ever::serialize::{serialize, SerializeOpts, TraversalScope};
 use smol_str::SmolStr;
+use trae::{NodeEdge, NodeId, Tree};
 
 #[derive(Debug, Clone, Copy)]
 pub struct NodeRef<'a> {
-    pub(crate) tree: &'a Arena<Node>,
+    pub(crate) tree: &'a Tree<Node>,
     pub(crate) id: NodeId,
 }
 
@@ -26,38 +26,38 @@ impl<'a> std::ops::Deref for NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
-    pub(crate) fn new(tree: &'a Arena<Node>, id: NodeId) -> Self {
+    pub(crate) fn new(tree: &'a Tree<Node>, id: NodeId) -> Self {
         NodeRef { tree, id }
     }
 
     pub fn children(&self) -> impl Iterator<Item = NodeRef<'a>> {
-        self.id
-            .children(self.tree)
+        self.tree
+            .children(self.id)
             .map(|node| NodeRef::new(self.tree, node))
     }
 
     pub fn reverse_children(&self) -> ChildrenRev<'a> {
         ChildrenRev {
-            inner: self.id.reverse_children::<Node>(self.tree),
+            inner: self.tree.reverse_children(self.id),
             area: self.tree,
         }
     }
 
     pub fn prev_siblings(&self) -> PrevSiblings<'a> {
-        let mut inner = self.id.preceding_siblings(&self.tree);
+        let mut inner = self.tree.proceeding_siblings(self.id);
         inner.next();
         PrevSiblings {
             inner,
-            arena: &self.tree,
+            arena: self.tree,
         }
     }
 
     pub fn next_siblings(&self) -> NextSiblings<'a> {
-        let mut inner = self.id.following_siblings(&self.tree);
+        let mut inner = self.tree.forward_siblings(self.id);
         inner.next();
         NextSiblings {
             inner,
-            arena: &self.tree,
+            arena: self.tree,
         }
     }
 
@@ -73,11 +73,11 @@ impl<'a> NodeRef<'a> {
     }
 
     pub fn node(&self) -> &'a Node {
-        self.tree[self.id].get()
+        &self.tree[self.id]
     }
 
     pub fn node_type(&self) -> String {
-        match self.tree[self.id].get() {
+        match &self.tree[self.id] {
             Node::Comment(_) => "comment".to_string(),
             Node::Doctype(_) => "doctype".to_string(),
             Node::Element(el) => el.name().to_string(),
@@ -88,8 +88,8 @@ impl<'a> NodeRef<'a> {
     }
 
     pub fn parent(&self) -> Option<NodeRef<'a>> {
-        self.tree[self.id].parent().map(|id| NodeRef {
-            tree: &self.tree,
+        self.tree.parent(self.id).map(|id| NodeRef {
+            tree: self.tree,
             id,
         })
     }
@@ -121,7 +121,7 @@ impl<'a> NodeRef<'a> {
 
     pub fn traverse(&self) -> Traverse<'a> {
         Traverse {
-            inner: self.id.traverse(&self.tree),
+            inner: self.tree.traverse(self.id),
             tree: self.tree,
         }
     }
@@ -134,8 +134,8 @@ pub enum Edge<'a> {
 }
 
 pub struct Traverse<'a> {
-    inner: generational_indextree::Traverse<'a, Node>,
-    tree: &'a Arena<Node>,
+    inner: trae::Traverse<'a, Node>,
+    tree: &'a Tree<Node>,
 }
 
 impl<'a> Iterator for Traverse<'a> {
@@ -144,11 +144,11 @@ impl<'a> Iterator for Traverse<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.next()? {
             NodeEdge::Start(node) => Some(Edge::Open(NodeRef {
-                tree: &self.tree,
+                tree: self.tree,
                 id: node,
             })),
             NodeEdge::End(node) => Some(Edge::Close(NodeRef {
-                tree: &self.tree,
+                tree: self.tree,
                 id: node,
             })),
         }
@@ -175,38 +175,38 @@ impl<'a> Iterator for Text<'a> {
 }
 
 pub struct ChildrenRev<'a> {
-    inner: generational_indextree::ReverseChildren<'a, Node>,
-    area: &'a Arena<Node>,
+    inner: trae::ReverseChildren<'a, Node>,
+    area: &'a Tree<Node>,
 }
 
 impl<'a> Iterator for ChildrenRev<'a> {
     type Item = NodeRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|idx| NodeRef::new(&self.area, idx))
+        self.inner.next().map(|idx| NodeRef::new(self.area, idx))
     }
 }
 
 pub struct PrevSiblings<'a> {
-    inner: generational_indextree::PrecedingSiblings<'a, Node>,
-    arena: &'a Arena<Node>,
+    inner: trae::ProceedingSiblings<'a, Node>,
+    arena: &'a Tree<Node>,
 }
 
 impl<'a> Iterator for PrevSiblings<'a> {
     type Item = NodeRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|idx| NodeRef::new(&self.arena, idx))
+        self.inner.next().map(|idx| NodeRef::new(self.arena, idx))
     }
 }
 
 pub struct NextSiblings<'a> {
-    inner: generational_indextree::FollowingSiblings<'a, Node>,
-    arena: &'a Arena<Node>,
+    inner: trae::ForwardSiblings<'a, Node>,
+    arena: &'a Tree<Node>,
 }
 
 impl<'a> Iterator for NextSiblings<'a> {
     type Item = NodeRef<'a>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|idx| NodeRef::new(&self.arena, idx))
+        self.inner.next().map(|idx| NodeRef::new(self.arena, idx))
     }
 }
 
@@ -214,34 +214,34 @@ impl<'a> Iterator for NextSiblings<'a> {
 mod tests {
     use super::NodeRef;
     use crate::node::{Comment, Element, Node, Text};
-    use generational_indextree::Arena;
     use html5ever::{ns, LocalName, QualName};
+    use trae::Tree;
 
     #[test]
     fn node_ref_navigates_and_serializes_a_tree() {
-        let mut tree = Arena::new();
-        let document = tree.new_node(Node::Document);
+        let mut tree = Tree::new();
+        let document = tree.alloc(Node::Document);
         let mut element = Element::new(
             QualName::new(None, ns!(html), LocalName::from("div")),
             Vec::new(),
         );
         element.set_attr("id", "root");
-        let div = tree.new_node(Node::Element(element));
-        let text = tree.new_node(Node::Text(Text {
+        let div = tree.alloc(Node::Element(element));
+        let text = tree.alloc(Node::Text(Text {
             text: "text".into(),
         }));
-        let comment = tree.new_node(Node::Comment(Comment {
+        let comment = tree.alloc(Node::Comment(Comment {
             comment: "note".into(),
         }));
-        let span = tree.new_node(Node::Element(Element::new(
+        let span = tree.alloc(Node::Element(Element::new(
             QualName::new(None, ns!(html), LocalName::from("span")),
             Vec::new(),
         )));
 
-        document.append(div, &mut tree);
-        div.append(text, &mut tree);
-        div.append(comment, &mut tree);
-        div.append(span, &mut tree);
+        tree.append(document, div);
+        tree.append(div, text);
+        tree.append(div, comment);
+        tree.append(div, span);
 
         let node = NodeRef::new(&tree, div);
         assert_eq!(node.node_type(), "div");

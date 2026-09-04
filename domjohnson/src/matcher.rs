@@ -1,5 +1,4 @@
 use cssparser::ParseError;
-use generational_indextree::{Arena, NodeId};
 use precomputed_hash::PrecomputedHash;
 use selectors::{
     matching,
@@ -14,6 +13,7 @@ use std::{
 };
 
 use crate::{element::NodeRef, node::Node};
+use trae::{NodeId, Tree};
 
 /// CSS selector.
 #[derive(Clone, Debug)]
@@ -54,7 +54,7 @@ impl Matcher {
 
 #[derive(Debug, Clone)]
 pub struct Matches<'a, T> {
-    arena: &'a Arena<Node>,
+    arena: &'a Tree<Node>,
     roots: Vec<T>,
     nodes: Vec<T>,
     matcher: Matcher,
@@ -71,7 +71,7 @@ pub enum MatchScope {
 
 impl<'a, T> Matches<'a, T> {
     pub fn from_one(
-        arena: &'a Arena<Node>,
+        arena: &'a Tree<Node>,
         node: T,
         matcher: Matcher,
         match_scope: MatchScope,
@@ -87,7 +87,7 @@ impl<'a, T> Matches<'a, T> {
     }
 
     pub fn from_list<I: Iterator<Item = T>>(
-        arena: &'a Arena<Node>,
+        arena: &'a Tree<Node>,
         nodes: I,
         matcher: Matcher,
         match_scope: MatchScope,
@@ -118,7 +118,7 @@ impl<'a> Iterator for Matches<'a, NodeId> {
                 match self.match_scope {
                     MatchScope::IncludeNode => self.nodes.insert(0, root),
                     MatchScope::ChildrenOnly => {
-                        for child in root.reverse_children(&self.arena) {
+                        for child in self.arena.reverse_children(root) {
                             self.nodes.insert(0, child);
                         }
                     }
@@ -128,11 +128,11 @@ impl<'a> Iterator for Matches<'a, NodeId> {
             while !self.nodes.is_empty() {
                 let node = self.nodes.remove(0);
 
-                for node in node.reverse_children(&self.arena) {
+                for node in self.arena.reverse_children(node) {
                     self.nodes.insert(0, node);
                 }
 
-                let node_ref = NodeRef::new(&self.arena, node);
+                let node_ref = NodeRef::new(self.arena, node);
 
                 if node_ref.node().is_element() && self.matcher.match_element(&node_ref) {
                     if self.set.contains(&node) {

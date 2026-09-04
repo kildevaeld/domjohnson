@@ -12,6 +12,6 @@ pub use self::{
     selection::Selection,
 };
 
-pub use generational_indextree::NodeId;
+pub use trae::NodeId;
 
 pub use selectors::attr::CaseSensitivity;
