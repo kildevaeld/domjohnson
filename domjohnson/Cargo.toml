@@ -14,6 +14,7 @@ selectors = "0.40"
 cssparser = "0.37"
 precomputed-hash = "0.1"
 generational-indextree = { version = "1" }
+trae = { git = "https://github.com/kildevaeld/trae-rs" }
 smol_str = { version = "0.3.6" }
 locket = { git = "https://github.com/kildevaeld/locket-rs" }
 
