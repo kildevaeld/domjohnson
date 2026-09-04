@@ -26,6 +26,10 @@ impl Document {
         parser.one(html)
     }
 
+    pub fn quirks_mode(&self) -> QuirksMode {
+        self.quirks
+    }
+
     pub fn new_html5() -> Document {
         let mut tree = Tree::new();
 
@@ -113,6 +117,14 @@ impl Document {
 
     pub fn append(&mut self, parent: NodeId, child: NodeId) {
         self.tree.append(parent, child)
+    }
+
+    pub fn insert_before(&mut self, parent: NodeId, child: NodeId, reference: NodeId) {
+        self.tree.insert_before(parent, reference, child)
+    }
+
+    pub fn insert_after(&mut self, parent: NodeId, child: NodeId, reference: NodeId) {
+        self.tree.insert_after(parent, reference, child)
     }
 
     pub fn traverse(&self, node: NodeId) -> trae::Traverse<'_, Node> {

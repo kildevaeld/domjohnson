@@ -120,7 +120,6 @@ dependencies = [
  "cssparser",
  "html5ever",
  "indexmap",
- "locket",
  "precomputed-hash",
  "selectors",
  "smol_str",
